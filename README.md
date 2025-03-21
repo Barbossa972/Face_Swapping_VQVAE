@@ -2,17 +2,17 @@ The goal of this project is to evaluate to what extent it is possible to do face
 
 To use the scripts as they are, your directories should be organised as follow:
 
-main
-|- scripts
-    |- vqvae.py
-    |- train_vqvae.py
-    |- dataset.py
-    |- utils.py
-|- data
-    |- Celeba-HQ-img
-          |- .jpg
-|- checkpoints
-    |- vqvae
-        |- .pkl
-    |- merging
-        |- .pkl
+main</br>
+|- scripts</br>
+|    |- vqvae.py</br>
+|    |- train_vqvae.py</br>
+|    |- dataset.py</br>
+|    |- utils.py</br>
+|- data</br>
+|    |- Celeba-HQ-img</br>
+|    |   |- .jpg</br>
+|- checkpoints</br>
+|    |- vqvae</br>
+|    |   |- .pkl</br>
+|    |- merging</br>
+|    |   |- .pkl</br>
