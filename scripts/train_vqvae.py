@@ -1,8 +1,10 @@
 # See: https://github.com/deepmind/sonnet/blob/v2/examples/vqvae_example.ipynb.
 
+import cv2
 import numpy as np
 import torch
 import kagglehub
+import dlib
 import os
 import shutil
 
@@ -45,15 +47,31 @@ transform = transforms.Compose(
     ]
 )
 data_root = Path("../data")
-if not os.path.exists(data_root) or len(os.listdir(data_root)) == 0:
+CelebA_HQ_path = os.path.join(data_root, "CelebA-HQ-img")
+if not os.path.exists(CelebA_HQ_path) or len(os.listdir(CelebA_HQ_path)) == 0:
     print("Downloading CelebA-HQ data...")
     celeba_path = kagglehub.dataset_download("ipythonx/celebamaskhq")
     shutil.move(os.path.join(celeba_path, "CelebAMask-HQ/CelebA-HQ-img"), data_root)
     shutil.rmtree(celeba_path)
     print("Data sorted.")
+Cropped_CelebA_HQ_path = os.path.join(data_root, "Cropped_CelebA-HQ-img")
+if not os.path.exists(Cropped_CelebA_HQ_path) or len(os.listdir(Cropped_CelebA_HQ_path)) == 0:
+    print("Cropping CelebA-HQ data...")
+    detector = dlib.get_frontal_face_detector()
+    for im_name in tqdm(os.listdir(CelebA_HQ_path)):
+        im_path = os.path.join(CelebA_HQ_path, im_name)
+        im = cv2.imread(im_path)
+        cropped, _, _, _, _, h = preprocess_face(im, detector)
+        if h == None:
+            continue
+        writting_path = os.path.join(Cropped_CelebA_HQ_path, im_name)
+        cv2.imwrite(writting_path, cropped)
+    print("All images are cropped.")
     
 # train_dataset = CIFAR10(data_root, True, transform, download=True)
-train_dataset = CelebaDataset(data_root)
+merging = False
+cropped = True
+train_dataset = CelebaDataset(data_root, merging=merging, cropped=cropped)
 train_data_variance = train_dataset.calculate_mean_variance()[1]
 train_loader = DataLoader(
     dataset=train_dataset,
@@ -73,7 +91,7 @@ optimizer = optim.Adam(train_params, lr=lr)
 criterion = nn.MSELoss()
 
 # Train model.
-epochs = 1
+epochs = 2
 eval_every = 100
 best_train_loss = float("inf")
 model.train()
@@ -83,9 +101,11 @@ for epoch in range(epochs):
     n_train = 0
     for (batch_idx, train_tensors) in enumerate(train_loader):
         optimizer.zero_grad()
-        imgs = train_tensors.to(device)
+        imgs, targets = train_tensors
+        imgs = imgs.to(device)
+        targets = targets.to(device)
         out = model(imgs)
-        recon_error = criterion(out["x_recon"], imgs) / train_data_variance
+        recon_error = criterion(out["x_recon"], targets) / train_data_variance
         total_recon_error += recon_error.item()
         loss = recon_error + beta * out["commitment_loss"]
         if not use_ema:
@@ -101,7 +121,11 @@ for epoch in range(epochs):
             total_train_loss /= n_train
             if total_train_loss < best_train_loss:
                 best_train_loss = total_train_loss
-                save_checkpoint(os.path.join("..", "checkpoints", "vqvae"), model, optimizer, epoch, loss)
+                if merging:
+                    path_to_save = os.path.join("..", "checkpoints", "merging")
+                else:
+                    path_to_save = os.path.join("..", "checkpoints", "vqvae")
+                save_checkpoint(path_to_save, model, optimizer, epoch, loss)
 
             print(f"total_train_loss: {total_train_loss}")
             print(f"best_train_loss: {best_train_loss}")
@@ -114,7 +138,7 @@ for epoch in range(epochs):
 # Generate and save reconstructions.
 model.eval()
 
-valid_dataset = CelebaDataset(data_root)
+valid_dataset = CelebaDataset(data_root, merging=merging, cropped=cropped)
 valid_loader = DataLoader(
     dataset=valid_dataset,
     batch_size=batch_size,
@@ -123,6 +147,8 @@ valid_loader = DataLoader(
 
 with torch.no_grad():
     for valid_tensors in valid_loader:
+        imgs, targets = valid_tensors
         break
-    save_img_tensors_as_grid(valid_tensors, 4, "true")
-    save_img_tensors_as_grid(model(valid_tensors.to(device))["x_recon"], 4, "recon")
+    save_img_tensors_as_grid(imgs, 4, "true")
+    save_img_tensors_as_grid(targets, 4, "targets")
+    save_img_tensors_as_grid(model(imgs.to(device))["x_recon"], 4, "recon")

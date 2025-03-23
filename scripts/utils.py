@@ -1,6 +1,7 @@
 
 import torch
 import os
+import cv2
 import numpy as np
 from dataset import CelebaDataset
 from tqdm import tqdm
@@ -26,7 +27,7 @@ def save_checkpoint(
         'loss': loss,
     }
 
-    torch.save(checkpoint, os.path.join(save_path, f"_epoch={epoch}_loss_{loss}.pkl"))
+    torch.save(checkpoint, os.path.join(save_path, f"best_loss.pkl"))
 
 
 def save_img_tensors_as_grid(img_tensors, nrows, f):
@@ -75,14 +76,15 @@ def PCA_analysis(dataloader, weight_path="../checkpoints/vqvae/_epoch=0_loss_0.0
     latents = []
     images = []
     for i, batch in tqdm(enumerate(data_loader), desc="Generating latent spaces"):
-        z = encoder(batch.to(device))  # Get the mean latent vector
+        inputs, targets = batch
+        z = encoder(inputs.to(device))  # Get the mean latent vector
         latents.append(z.detach().cpu().numpy())
-        images.append(batch)
+        images.append(inputs)
         if i == 1000:
             break
         
     original_shape = z.shape
-    image_shape = batch.shape
+    image_shape = inputs.shape
 
     latents = np.vstack(latents)  # Shape: (num_samples, latent_dim)
     images = np.vstack(images)
@@ -100,9 +102,9 @@ def PCA_analysis(dataloader, weight_path="../checkpoints/vqvae/_epoch=0_loss_0.0
     original_z = latents[idx]
     original_im = images[idx]
     # max_value = original_z.max()
-    for i in range(n_components):
-        component = pca.components_[i][:128*256*256]
-        component = component.reshape(128, 256, 256)
+    for i in tqdm(range(n_components), desc="Plotting components"):
+        component = pca.components_[i][:128*256*256] #[:128*32*32]
+        component = component.reshape(128, 256, 256) #(128, 32,32)
         avg_component = np.mean(component, axis=0)
         
         plt.imshow(avg_component, cmap="coolwarm")
@@ -112,28 +114,39 @@ def PCA_analysis(dataloader, weight_path="../checkpoints/vqvae/_epoch=0_loss_0.0
         plt.close()
 
     original_max = original_z.max()
+    im_max = original_im.max()
     for i in range(n_components):
-        for alpha in [-original_max, 0, original_max]:  # Vary along PC direction
-            modified_z =  original_z + alpha * pca.components_[i]  # Modify along PC_i, original_z + alpha * np.random.random_sample(original_z.shape)
+        for alpha in [-50, 0, 50]:  # Vary along PC direction
+            modified_z =  original_z + alpha * original_max * pca.components_[i]  # Modify along PC_i, original_z + alpha * np.random.random_sample(original_z.shape)
             modified_z = torch.tensor(modified_z).float().unsqueeze(0)
 
             # 4. Decode and visualize
             pre_vq_modified_z = pre_vq(modified_z.view(original_shape).to(device))
             vq_modified_z = vq(pre_vq_modified_z)[0]
             recon = decoder(vq_modified_z).detach().cpu()
-            modified_im = torch.from_numpy((original_im + alpha*pca_i.components_[i]).reshape(image_shape))
+            modified_im = torch.from_numpy((original_im + alpha * im_max * pca_i.components_[i]).reshape(image_shape))
             title = f"../results/PC_{i}_alpha_{alpha}"
             save_img_tensors_as_grid(recon, 1, title)
             title_im = f"../results/IM_PC_{i}_alpha_{alpha}"
             save_img_tensors_as_grid(modified_im, 1, title_im)
 
+def preprocess_face(image, detector):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    faces = detector(gray)
+    if len(faces) > 0:
+        x, y, w, h = faces[0].left(), faces[0].top(), faces[0].width(), faces[0].height()
+        face = image[y:y+h, x:x+w]
+        face = cv2.resize(face, (128, 128)) # / 255.0
+        return face, image.shape, x, y, w, h
+    return None, None, None, None, None, None
+
 if __name__=='__main__':
     data_root = "../data"
-    dataset = CelebaDataset(data_root)
+    dataset = CelebaDataset(data_root, cropped=False)
     loader = DataLoader(
         dataset=dataset,
         batch_size=32,
         shuffle=False,
         num_workers=10,
     )
-    PCA_analysis(loader)
+    PCA_analysis(loader) #, weight_path="../checkpoints/vqvae/best_loss.pkl")
