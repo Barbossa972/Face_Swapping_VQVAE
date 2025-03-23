@@ -49,7 +49,7 @@ def save_img_tensors_as_grid(img_tensors, nrows, f):
     Image.fromarray(img_arr.astype(np.uint8), "RGB").save(f"{f}.jpg")
     return 0
 
-def PCA_analysis(dataloader, weight_path="../checkpoints/vqvae/_epoch=0_loss_0.0079584289342165.pkl", device = torch.device("cuda:0")):
+def PCA_analysis(dataloader, weight_path="../checkpoints/vqvae/full_images.pkl", device = torch.device("cuda:0")):
     model_args = {
     "in_channels": 3,
     "num_hiddens": 128,
